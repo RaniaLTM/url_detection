@@ -6,9 +6,7 @@ import requests
 from dotenv import load_dotenv
 import os
 
-load_dotenv("/etc/secrets/.env")
 
-file_id = os.getenv("MODEL_FILE_ID")
 # Function to download the model from Google Drive
 def download_model_from_drive(file_id: str):
     # URL to download the model file from Google Drive
