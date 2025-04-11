@@ -3,70 +3,81 @@ import pickle
 import re
 import os
 import requests
-import os
+from dotenv import load_dotenv
 
+# ========== Load environment variables ==========
+load_dotenv("/etc/secrets/.env")  # Render secret mount point
 
-# Function to download the model from Google Drive
+# ========== Get the file ID from the environment ==========
+file_id = os.getenv("MODEL_FILE_ID")  # Make sure to define this in Render secret env file
+
+# ========== Google Drive Download Helper ==========
 def download_model_from_drive(file_id: str):
-    # URL to download the model file from Google Drive
-    URL = f"https://drive.google.com/uc?id={file_id}"
-    response = requests.get(URL)
-    
-    if response.status_code == 200:
-        with open('rf.pkl', 'wb') as f:
-            f.write(response.content)
-        print("Model downloaded successfully!")
-    else:
-        print("Failed to download the model.")
-        raise Exception("Error downloading model from Google Drive.")
+    print("Attempting to download model from Google Drive...")
+    URL = "https://docs.google.com/uc?export=download"
+    session = requests.Session()
+    response = session.get(URL, params={'id': file_id}, stream=True)
 
-# Function to load the model from a local file (after downloading)
+    # Confirm token for large files
+    def get_confirm_token(resp):
+        for key, value in resp.cookies.items():
+            if key.startswith('download_warning'):
+                return value
+        return None
+
+    token = get_confirm_token(response)
+    if token:
+        response = session.get(URL, params={'id': file_id, 'confirm': token}, stream=True)
+
+    # Save to rf.pkl
+    with open("rf.pkl", "wb") as f:
+        for chunk in response.iter_content(32768):
+            if chunk:
+                f.write(chunk)
+
+    print("✅ Model downloaded successfully.")
+
+# ========== Model Loader ==========
 def load_model():
-    if not os.path.exists('rf.pkl'):
-        # If the model is not found, download it
-        file_id = '1B4cCZVPUCORudafMMCqItvQUeN5s4ATU'  # Replace this with your actual Google Drive file ID
+    if not os.path.exists("rf.pkl"):
+        if not file_id:
+            raise Exception("❌ MODEL_FILE_ID is not set in .env")
         download_model_from_drive(file_id)
 
-    # Load the model
     with open("rf.pkl", "rb") as f:
-        model = pickle.load(f)
-    return model
+        return pickle.load(f)
 
-# Initialize FastAPI app
+# ========== Initialize App ==========
 app = FastAPI()
-
-# Load the model at the start of the app
 model = load_model()
 
-# ======== Feature Extraction Function =========
+# ========== Feature Extraction ==========
 def extract_features(url: str):
-    # Extracting features based on the trained model
     features = [
         int(re.search(r"\d+\.\d+\.\d+\.\d+", url) is not None),  # use_of_ip
-        int('://' in url and not url.startswith('https')),  # abnormal_url (example: http instead of https)
-        url.count('.'),  # count.
-        url.count('www'),  # count-www
-        url.count('@'),  # count@
-        url.count('/'),  # count_dir
-        int('embed' in url),  # count_embed_domian (just a guess based on the name)
-        int(len(url) < 20),  # short_url (example: URL length less than 20)
-        int('https' in url),  # count-https
-        int('http' in url),  # count-http
-        url.count('%'),  # count%
-        url.count('-'),  # count-
-        url.count('='),  # count=
-        len(url),  # url_length
-        len(url.split('//')[1].split('/')[0]),  # hostname_length (length of the domain name)
-        int('suspicious' in url),  # sus_url (just an example, you'd define this based on your needs)
-        len(url.split('//')[1]) if '//' in url else 0,  # fd_length (could be a guess for path length)
-        len(url.split('.')[-1]),  # tld_length (length of the top-level domain)
-        sum(c.isdigit() for c in url),  # count-digits
-        sum(c.isalpha() for c in url)  # count-letters
+        int('://' in url and not url.startswith('https')),       # abnormal_url
+        url.count('.'),
+        url.count('www'),
+        url.count('@'),
+        url.count('/'),
+        int('embed' in url),
+        int(len(url) < 20),
+        int('https' in url),
+        int('http' in url),
+        url.count('%'),
+        url.count('-'),
+        url.count('='),
+        len(url),
+        len(url.split('//')[1].split('/')[0]) if '//' in url else 0,
+        int('suspicious' in url),
+        len(url.split('//')[1]) if '//' in url else 0,
+        len(url.split('.')[-1]),
+        sum(c.isdigit() for c in url),
+        sum(c.isalpha() for c in url)
     ]
-    
     return features
 
-# ========= API Endpoint =========
+# ========== API Routes ==========
 @app.get("/check-url")
 def check_url(url: str = Query(...)):
     features = extract_features(url)
@@ -76,9 +87,3 @@ def check_url(url: str = Query(...)):
 @app.get("/healthz")
 def health_check():
     return {"status": "ok"}
-
-
-
-
-
-
