@@ -1,14 +1,45 @@
-# app.py
 from fastapi import FastAPI, Query
-from pydantic import BaseModel
 import pickle
 import re
+import os
+import requests
+from dotenv import load_dotenv
+import os
 
-# Load your trained model
-with open("rf.pkl", "rb") as f:
-    model = pickle.load(f)
+load_dotenv("/etc/secrets/.env")
 
+file_id = os.getenv("MODEL_FILE_ID")
+# Function to download the model from Google Drive
+def download_model_from_drive(file_id: str):
+    # URL to download the model file from Google Drive
+    URL = f"https://drive.google.com/uc?id={file_id}"
+    response = requests.get(URL)
+    
+    if response.status_code == 200:
+        with open('rf.pkl', 'wb') as f:
+            f.write(response.content)
+        print("Model downloaded successfully!")
+    else:
+        print("Failed to download the model.")
+        raise Exception("Error downloading model from Google Drive.")
+
+# Function to load the model from a local file (after downloading)
+def load_model():
+    if not os.path.exists('rf.pkl'):
+        # If the model is not found, download it
+        file_id = '1B4cCZVPUCORudafMMCqItvQUeN5s4ATU'  # Replace this with your actual Google Drive file ID
+        download_model_from_drive(file_id)
+
+    # Load the model
+    with open("rf.pkl", "rb") as f:
+        model = pickle.load(f)
+    return model
+
+# Initialize FastAPI app
 app = FastAPI()
+
+# Load the model at the start of the app
+model = load_model()
 
 # ======== Feature Extraction Function =========
 def extract_features(url: str):
@@ -38,11 +69,19 @@ def extract_features(url: str):
     
     return features
 
-# You must match this structure to your original training data features.
-
 # ========= API Endpoint =========
 @app.get("/check-url")
 def check_url(url: str = Query(...)):
     features = extract_features(url)
     prediction = model.predict([features])[0]
     return {"url": url, "is_malicious": bool(prediction)}
+
+@app.get("/healthz")
+def health_check():
+    return {"status": "ok"}
+
+
+
+
+
+
