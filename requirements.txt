@@ -2,6 +2,4 @@ fastapi
 uvicorn
 scikit-learn
 pandas
-nginx
-Copier
-Modifier
+requests
